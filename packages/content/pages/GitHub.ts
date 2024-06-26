@@ -13,7 +13,7 @@ import * as fastdom from 'fastdom';
 import { getFileIcon, getFolderIcon } from '../utils/Dev';
 import { observe } from 'selector-observer';
 
-export const QUERY_FILE_TABLE_ITEMS = 'div.js-navigation-container>div.js-navigation-item';
+export const QUERY_FILE_TABLE_ITEMS = '[aria-labelledby="folders-and-files"] tr';
 export const QUERY_PATH_SEGMENTS = '.repository-content .js-path-segment a';
 export const QUERY_PJAX_CONTAINER = 'main';
 export const QUERY_LAST_PATH_SEGMENT = '.final-path';
@@ -67,10 +67,10 @@ function getHtmlIcon(iconPath: string, svgElem?: SVGElement) {
  * Show icons for repository files (legacy view)
  */
 function showRepoTreeIcons(rowEl: Element) {
-  const iconEl = rowEl.children[0] as HTMLTableCellElement;
-  const iconSVGEl = iconEl.querySelector<SVGElement>('.octicon');
-  if (!iconSVGEl) {
-    // ... (up)
+  const iconSVGEl = [...rowEl.querySelectorAll<SVGElement>('svg')];
+  if (!iconSVGEl.length) {
+    // can be mobile button or header
+    // console.warn(`[vscode-icons] Error during parsing: can't find any SVGs in main file tree view`);
     return;
   }
   /**
@@ -81,33 +81,36 @@ function showRepoTreeIcons(rowEl: Element) {
    *  <div><span>{time}</span><s/div>,
    * </div>
    */
-  const contentEl = rowEl.children[1] as Element;
+  const contentEl = rowEl.children[1] as HTMLElement;
+  if (!contentEl) return;
 
-  const linkToEl = contentEl.firstElementChild!.firstElementChild as HTMLAnchorElement;
+  const fileText = contentEl.innerText.toLowerCase().trim();
 
   let iconPath = '' as string | undefined;
   if (iconSVGEl) {
-    const iconSVGClassName = iconSVGEl.className.baseVal;
-    if (!iconSVGClassName) return;
-    if (iconSVGClassName.includes('octicon-file-text') || iconSVGClassName.includes('octicon-file ')) {
-      iconPath = getFileIcon(linkToEl.innerText.toLowerCase());
-    } else if (iconSVGClassName.includes('octicon-file-directory')) {
-      const name = linkToEl.innerText.toLowerCase();
-      iconPath = getFolderIcon(name.split('/').shift()!);
-    } else if (iconSVGClassName.includes('octicon-file-submodule')) {
+    const isDirectory = rowEl.querySelector('[aria-label*="Directory"]');
+    const isFile = rowEl.querySelector('[aria-label*="File"]');
+    const isSubmodule = rowEl.querySelector('[aria-label*="Submodule"]');
+    if (isSubmodule) {
+      // if (isDirectory) {
       iconPath = getIconForFolder('submodules');
-    } else if (iconSVGClassName.includes('octicon-file-symlink-file')) {
-      iconPath = DEFAULT_FILE;
-    } else if (iconSVGClassName.includes('octicon-file-symlink-directory')) {
-      iconPath = DEFAULT_FILE;
-    } else {
-      console.warn(`[vscode-icons] Unknown filetype: "${iconSVGClassName}", please report`);
-      return;
+      // } else {
+      //   iconPath = DEFAULT_FILE;
+      // }
+    } else if (!isDirectory) {
+      iconPath = getFileIcon(fileText);
+    } else if (isDirectory) {
+      const name = fileText;
+      iconPath = getFolderIcon(name.split('/').shift()!);
     }
     if (!iconPath) return;
-    const x = (fastdom as any).mutate(() => {
-      iconSVGEl.outerHTML = getHtmlIcon(iconPath!, iconSVGEl);
-    });
+    for (const svg of iconSVGEl) {
+      (fastdom as any).mutate(() => {
+        // detect if detached node
+        if (!svg.parentElement) return;
+        svg.outerHTML = getHtmlIcon(iconPath!, svg);
+      });
+    }
   }
   // else {
   //   console.error(`Error during parsing: "td.icon > svg.octoicon" doesnt exists for ${i}. row`);
@@ -140,6 +143,7 @@ function newShowRepoTreeIcons(row: HTMLElement) {
 
     if (iconPath) {
       (fastdom as any).mutate(() => {
+        if (!iconEl.parentElement) return;
         iconEl.outerHTML = getHtmlIcon(iconPath!, iconEl as SVGElement);
       });
     }
@@ -158,6 +162,7 @@ function newShowRepoTreeIconsFileSearchResult(row: HTMLElement) {
   if (!iconPath || !iconEl) return;
 
   (fastdom as any).mutate(() => {
+    if (!iconEl.parentElement) return;
     iconEl.outerHTML = getHtmlIcon(iconPath!);
     const justInsertedIcon = a.querySelector('.vscode-icon') as HTMLElement;
     justInsertedIcon.style.marginRight = '3px';
@@ -178,6 +183,7 @@ function globalSearchResult(row: HTMLElement) {
   if (!iconPath) return;
 
   (fastdom as any).mutate(() => {
+    if (!iconEl.parentElement) return;
     iconEl.outerHTML = getHtmlIcon(iconPath!);
     const justInsertedIcon = row.querySelector('.vscode-icon') as HTMLElement;
     justInsertedIcon.style.marginRight = '3px';
@@ -208,6 +214,7 @@ function newShowRepoTreeIconsCommandPallete(row: HTMLElement) {
   if (iconPath) {
     (fastdom as any).mutate(() => {
       const iconEl = row.querySelector('svg')!;
+      if (!iconEl.parentElement) return;
       iconEl.outerHTML = getHtmlIcon(iconPath!, iconEl);
     });
   }
@@ -256,10 +263,28 @@ function update(e?: any) {
   }
 }
 
+// const debugRemovedNodes = (root) => {
+//   const observer = new MutationObserver((mutationsList) => {
+//     for (const mutation of mutationsList) {
+//       mutation.removedNodes.forEach((removedNode) => {
+//         // if (removedNode === nodeToWatch) {
+//           console.log('The node has been removed from the DOM!', removedNode);
+//           observer.disconnect();
+//         // }
+//       });
+//     }
+//   });
+//   observer.observe(root, {
+//     childList: true,
+//     subtree: true,
+//   });
+// }
+
 export function initGithub() {
   // Update on fragment update
   observe(QUERY_FILE_TABLE_ITEMS, {
     add(rowEl) {
+      // query selector that have large-screen in class name
       showRepoTreeIcons(rowEl);
     },
   });
